@@ -2,19 +2,23 @@ from fststr import fststr
 import pywrapfst as fst
 
 class Lemmatizer:
+    # intializes the lemmatizer FST
     def __init__(self):
         self.st = fststr.symbols_table_from_alphabet(fststr.EN_SYMB)
         
+        # create preprocessing FST
         compiler = fst.Compiler(isymbols=self.st,osymbols=self.st,keep_isymbols=True,keep_osymbols=True)
         compiler.write('0 \n 0 0 <other> <other> \n0 0 <epsilon> <#>')
         preprocessFST = compiler.compile()
         fststr.expand_other_symbols(preprocessFST)
         
+        # gets subFSTs for in-vocab FST
         self.inVocabFile = open("in_vocab_dictionary_verbs.txt")
         inVocabFST = self.getInVocabFST()
         morphoFST = self.getMorphoFST()
         alloFST = self.getAlloFST()
-
+        
+        # creates out-of-vocab FST
         compiler = fst.Compiler(isymbols=self.st,osymbols=self.st,keep_isymbols=True,keep_osymbols=True)
         compiler.write('\n0 \n0 0 <other> <other> \n0 1 <^> <epsilon> \n0 2 <#> +Guess \n1 1 <other> <epsilon> \n1 2 <#> +Guess \n2')
         oovPostFST = compiler.compile()
@@ -22,14 +26,18 @@ class Lemmatizer:
         temp = alloFST.union(oovPostFST)
         oovFST = fst.compose(morphoFST.arcsort(sort_type="olabel"), temp.arcsort(sort_type="ilabel"))
         oovFST = fst.compose(oovFST.arcsort(sort_type="olabel"), oovPostFST.arcsort(sort_type="ilabel"))
+        
+        # creates overall FST as union of each of the sub-FSTs
         self.fstOverall = fst.compose(preprocessFST.arcsort(sort_type="olabel"), inVocabFST.union(oovFST).arcsort(sort_type="ilabel"))
     
+    # creates in-vocab FST
     def getInVocabFST(self):
         st = self.st
         compiler = fst.Compiler(isymbols=st,osymbols=st,keep_isymbols=True,keep_osymbols=True)
         compiler.write('')
         inVocabFST = compiler.compile()
-
+        
+        # takes each lemma, conjugated pair from the in-vocab file and adds it to the FST
         lineList = [line.rstrip('\n') for line in self.inVocabFile]
         for line in lineList:
             parts = line.split(',')
@@ -53,6 +61,7 @@ class Lemmatizer:
         fststr.expand_other_symbols(inVocabFST)
         return inVocabFST
     
+    # creates and unions morphotactic FSTs for -ed, -ing, -s, and -en lemmatization
     def getMorphoFST(self):
         compiler = fst.Compiler(isymbols=self.st,osymbols=self.st,keep_isymbols=True,keep_osymbols=True)
         compiler.write('')
@@ -92,6 +101,7 @@ class Lemmatizer:
         fststr.expand_other_symbols(MorphoFST)
         return MorphoFST
     
+    # creates and unions allomorphic FSTs for y replacement, k insertion, e deletion, e insertion, and consonant doubling
     def getAlloFST(self):
         compiler = fst.Compiler(isymbols=self.st,osymbols=self.st,keep_isymbols=True,keep_osymbols=True)
         compiler.write('')
@@ -170,11 +180,13 @@ class Lemmatizer:
         AlloFST.union(yReplNew.union(kInsNew.union(fsteIns.union(eDelNew.union(consDoubNew)))))
         fststr.expand_other_symbols(AlloFST)
         return AlloFST
-
+    
+    # transforms conjugated verb to lemma form (infinitive)
     def lemmatize(self, str):
         fststr.expand_other_symbols(self.fstOverall)
         return fststr.apply(str, self.fstOverall)
 
+    # transforms lemmas (infinitive form) to all possible conjugations
     def delemmatize(self, str):
         fststr.expand_other_symbols(self.fstOverall)
         toReturn = fststr.apply(str, self.fstOverall.invert())
